@@ -26,29 +26,50 @@ async def run(parents_arg=None, season=2024, base_url=None):
         if not national_teams_box:
             return
 
-        # Get the first team link (senior team) — the list items contain a elements
-        team_links = national_teams_box.xpath('.//li/a[contains(@href, "/startseite/verein/")]')
+        # Get all team links (senior + age groups) in this section.
+        team_links = national_teams_box.xpath('.//a[contains(@href, "/startseite/verein/")]')
         if not team_links:
             return
 
-        team_link = team_links[0]
-        href = team_link.xpath('@href').get()
-        # Strip season from href if present
-        href = re.sub(r'/saison_id/[0-9]{4}$', '', href)
+        def infer_team_level(label):
+            match = re.search(r'(?i)u[-\s]?(\d{1,2})', label or '')
+            if match:
+                return f"u{match.group(1)}"
+            return 'senior'
 
-        cb_data = {
-            'type': 'national_team',
-            'href': href,
-            'parent': parent,
-        }
+        new_requests = []
+        seen_hrefs = set()
+        for team_link in team_links:
+            href = team_link.xpath('@href').get()
+            if not href:
+                continue
+            # Strip season from href if present
+            href = re.sub(r'/saison_id/[0-9]{4}$', '', href)
+            if href in seen_hrefs:
+                continue
+            seen_hrefs.add(href)
 
-        await context.add_requests([
-            Request.from_url(
-                url=f"{base_url}{href}/saison_id/{season}",
-                label='parse_details',
-                user_data={'base': cb_data},
+            team_label = safe_strip(' '.join(team_link.xpath('.//text()').getall()))
+            team_level = infer_team_level(team_label)
+
+            cb_data = {
+                'type': 'national_team',
+                'href': href,
+                'parent': parent,
+                'team_level': team_level,
+                'team_label': team_label,
+            }
+
+            new_requests.append(
+                Request.from_url(
+                    url=f"{base_url}{href}/saison_id/{season}",
+                    label='parse_details',
+                    user_data={'base': cb_data},
+                )
             )
-        ])
+
+        if new_requests:
+            await context.add_requests(new_requests)
 
     @crawler.router.handler('parse_details')
     async def parse_details(context) -> None:

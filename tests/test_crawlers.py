@@ -310,11 +310,11 @@ def test_countries(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 9. National Teams (~2 requests — 1 small country)
+# 9. National Teams (~2 requests — 1 small country, multiple levels)
 # ---------------------------------------------------------------------------
 
 def test_national_teams(tmp_path):
-    """Feed a single country (Wales, country_id=191)."""
+    """Feed a single country (Wales, country_id=191) and assert multi-level output."""
     items = run_crawler(
         "national_teams",
         parents_data={
@@ -331,6 +331,12 @@ def test_national_teams(tmp_path):
         assert "href" in item
         assert "name" in item
         assert "squad_size" in item
+        assert "team_label" in item
+        assert "team_level" in item
+        assert item["team_level"] == "senior" or item["team_level"].startswith("u")
+
+    # Wales should expose at least one youth squad in the national teams box.
+    assert any(item["team_level"] != "senior" for item in items)
 
 
 # ---------------------------------------------------------------------------

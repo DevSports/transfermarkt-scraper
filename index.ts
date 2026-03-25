@@ -5,6 +5,12 @@ export interface League {
   seasons: Season[];
 }
 
+export interface Nation {
+  id: string;
+  name: string;
+  seasons: Season[];
+}
+
 export interface Country {
   name: string;
   code: string;
@@ -23,6 +29,9 @@ export interface Team {
   national: boolean;
   players: Player[];
 }
+
+export type NationSeason = Season;
+export type NationSquad = Team;
 
 export interface Player {
   id: number;

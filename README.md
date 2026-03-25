@@ -59,7 +59,7 @@ python -m tfmkt confederations \
     | python -m tfmkt competitions \
     | grep -v '"country_name"' > national_team_competitions.json
 
-# scrape national team squads
+# scrape national team squads (senior + youth levels such as U21/U18 when available)
 python -m tfmkt confederations \
     | python -m tfmkt countries \
     | python -m tfmkt national_teams > national_teams.json
@@ -100,7 +100,7 @@ Items are extracted in JSON format with one JSON object per item, which get prin
 | `competitions` | Confederation | Competition | Domestic + national team competitions per confederation |
 | `countries` | Confederation | Country | One item per country (league-bearing nations) |
 | `clubs` | Competition (`first_tier`) | Club | Club squads with market value, coach, stadium |
-| `national_teams` | Country | National Team | Senior national team per country |
+| `national_teams` | Country | National Team | All discovered national-team levels per country (senior + age groups) |
 | `players` | Club or National Team | Player | Full player profile including market value history |
 | `appearances` | Player | Appearance | Per-match stats for every game played |
 | `tournament_editions` | Competition | Tournament Edition | Historical editions with year, season, winner, coach |
