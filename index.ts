@@ -32,6 +32,6 @@ export interface Player {
   nationality: string | null;
   heightCm: number | null;
   photo: string | null;
-  position: "attack" | "midfield" | "defender" | "goalkeeper" | null;
+  position: "Attack" | "Midfield" | "Defender" | "Goalkeeper" | null;
   number: number | null;
 }

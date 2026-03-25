@@ -3,6 +3,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { COUNTRY_CODE_BY_NORMALIZED_NAME } from "./country-code-map.ts";
 import type { League, Player, Season, Team } from "./index";
 
 type CrawlerName = "confederations" | "competitions" | "clubs" | "players";
@@ -174,7 +175,9 @@ function parseNdjsonLine<T extends object>(line: string, context: string): T {
   try {
     return JSON.parse(line) as T;
   } catch {
-    throw new Error(`Failed parsing NDJSON from ${context}: ${line.slice(0, 200)}`);
+    throw new Error(
+      `Failed parsing NDJSON from ${context}: ${line.slice(0, 200)}`
+    );
   }
 }
 
@@ -196,7 +199,7 @@ function runSubprocess<T extends object>(
   args: string[],
   context: string,
   inputItems?: object[],
-  parseNdjson = true,
+  parseNdjson = true
 ): Promise<SpawnResult<T>> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -233,7 +236,9 @@ function runSubprocess<T extends object>(
     });
 
     child.once("error", (error) => {
-      reject(new Error(`${context} failed to start (${command}): ${error.message}`));
+      reject(
+        new Error(`${context} failed to start (${command}): ${error.message}`)
+      );
     });
 
     child.once("close", (code) => {
@@ -249,15 +254,19 @@ function runSubprocess<T extends object>(
       });
     });
 
-    const input = inputItems && inputItems.length > 0
-      ? `${inputItems.map((item) => JSON.stringify(item)).join("\n")}\n`
-      : "";
+    const input =
+      inputItems && inputItems.length > 0
+        ? `${inputItems.map((item) => JSON.stringify(item)).join("\n")}\n`
+        : "";
     child.stdin.end(input, "utf8");
   });
 }
 
 function parseCommandSpec(spec: string): PythonInvocation {
-  const parts = spec.trim().split(/\s+/).filter((part) => part.length > 0);
+  const parts = spec
+    .trim()
+    .split(/\s+/)
+    .filter((part) => part.length > 0);
   if (parts.length === 0) {
     throw new Error("Empty Python command override");
   }
@@ -273,11 +282,19 @@ async function detectPythonCommand(): Promise<PythonInvocation> {
   const candidates: PythonInvocation[] = envOverride
     ? [parseCommandSpec(envOverride)]
     : [
-      { command: "python3", prefixArgs: [], label: "python3" },
-      { command: "python", prefixArgs: [], label: "python" },
-      { command: "poetry", prefixArgs: ["run", "python3"], label: "poetry run python3" },
-      { command: "poetry", prefixArgs: ["run", "python"], label: "poetry run python" },
-    ];
+        { command: "python3", prefixArgs: [], label: "python3" },
+        { command: "python", prefixArgs: [], label: "python" },
+        {
+          command: "poetry",
+          prefixArgs: ["run", "python3"],
+          label: "poetry run python3",
+        },
+        {
+          command: "poetry",
+          prefixArgs: ["run", "python"],
+          label: "poetry run python",
+        },
+      ];
 
   for (const candidate of candidates) {
     try {
@@ -286,7 +303,7 @@ async function detectPythonCommand(): Promise<PythonInvocation> {
         [...candidate.prefixArgs, "-c", "import crawlee; import tfmkt"],
         "python probe",
         undefined,
-        false,
+        false
       );
       if (result.code === 0) {
         return candidate;
@@ -299,13 +316,13 @@ async function detectPythonCommand(): Promise<PythonInvocation> {
   if (envOverride) {
     throw new Error(
       `Could not execute tfmkt with TFMKT_PYTHON_BIN="${envOverride}". ` +
-      "Ensure the command exists and this repository dependencies are installed.",
+        "Ensure the command exists and this repository dependencies are installed."
     );
   }
 
   throw new Error(
     'Could not find a working Python command for "python -m tfmkt". ' +
-    "Tried python3 and python.",
+      "Tried python3 and python."
   );
 }
 
@@ -313,9 +330,16 @@ async function runCrawler<T extends object>(
   python: PythonInvocation,
   crawler: CrawlerName,
   season: number,
-  parents?: object[],
+  parents?: object[]
 ): Promise<T[]> {
-  const args = [...python.prefixArgs, "-m", "tfmkt", crawler, "-s", String(season)];
+  const args = [
+    ...python.prefixArgs,
+    "-m",
+    "tfmkt",
+    crawler,
+    "-s",
+    String(season),
+  ];
   const context = `${crawler} crawler (season ${season})`;
   const result = await runSubprocess<T>(python.command, args, context, parents);
 
@@ -328,23 +352,28 @@ async function runCrawler<T extends object>(
         .slice(-3)
         .join(" | ");
       console.error(
-        `[export] warning: ${context} exited with code ${String(result.code)}. ` +
-        `Continuing with partial player data (${result.items.length} items).` +
-        (stderrPreview ? ` Recent errors: ${stderrPreview}` : ""),
+        `[export] warning: ${context} exited with code ${String(
+          result.code
+        )}. ` +
+          `Continuing with partial player data (${result.items.length} items).` +
+          (stderrPreview ? ` Recent errors: ${stderrPreview}` : "")
       );
       return result.items;
     }
 
     const stderrSuffix = result.stderr ? `\n${result.stderr}` : "";
     throw new Error(
-      `${context} exited with code ${String(result.code)}.${stderrSuffix}`,
+      `${context} exited with code ${String(result.code)}.${stderrSuffix}`
     );
   }
 
   return result.items;
 }
 
-function extractIdFromHref(href: string, segment: "verein" | "spieler"): number | null {
+function extractIdFromHref(
+  href: string,
+  segment: "verein" | "spieler"
+): number | null {
   const match = href.match(new RegExp(`/${segment}/(\\d+)`));
   if (!match) {
     return null;
@@ -362,6 +391,36 @@ function cleanText(value: unknown): string {
 function cleanNullable(value: unknown): string | null {
   const cleaned = cleanText(value);
   return cleaned.length > 0 ? cleaned : null;
+}
+
+function normalizeCountryKey(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function deriveFallbackCountryCode(rawCountry: string): string {
+  const letters = rawCountry
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, "")
+    .toUpperCase();
+  return (letters.slice(0, 2) || "UN").padEnd(2, "X");
+}
+
+function normalizeCountryCode(value: unknown): string | null {
+  const raw = cleanText(value);
+  if (!raw) {
+    return null;
+  }
+  const mapped = COUNTRY_CODE_BY_NORMALIZED_NAME[normalizeCountryKey(raw)];
+  if (mapped) {
+    return mapped;
+  }
+  return deriveFallbackCountryCode(raw);
 }
 
 function parseHeightCm(height: unknown): number | null {
@@ -402,7 +461,7 @@ function parseShirtNumber(value: unknown): number | null {
 
 function normalizePlayerNames(
   item: PlayerItem,
-  playerId: number,
+  playerId: number
 ): {
   firstName: string;
   lastName: string | null;
@@ -412,7 +471,12 @@ function normalizePlayerNames(
   const rawFullName = cleanText(item.full_name);
 
   let fullName = rawFullName;
-  if (!fullName && shortNameRaw && rawLastName && !shortNameRaw.toLowerCase().endsWith(rawLastName.toLowerCase())) {
+  if (
+    !fullName &&
+    shortNameRaw &&
+    rawLastName &&
+    !shortNameRaw.toLowerCase().endsWith(rawLastName.toLowerCase())
+  ) {
     fullName = `${shortNameRaw} ${rawLastName}`;
   }
   if (!fullName) {
@@ -449,13 +513,17 @@ function normalizePosition(value: unknown): Player["position"] {
     return null;
   }
   if (position.includes("goalkeeper")) {
-    return "goalkeeper";
+    return "Goalkeeper";
   }
-  if (position.includes("defender") || position.includes("back") || position.includes("cb")) {
-    return "defender";
+  if (
+    position.includes("defender") ||
+    position.includes("back") ||
+    position.includes("cb")
+  ) {
+    return "Defender";
   }
   if (position.includes("midfield") || position.includes("wing-back")) {
-    return "midfield";
+    return "Midfield";
   }
   if (
     position.includes("attack") ||
@@ -463,7 +531,7 @@ function normalizePosition(value: unknown): Player["position"] {
     position.includes("forward") ||
     position.includes("winger")
   ) {
-    return "attack";
+    return "Attack";
   }
   return null;
 }
@@ -481,7 +549,7 @@ function normalizePlayer(item: PlayerItem): Player | null {
     firstName: names.firstName,
     lastName: names.lastName,
     birthDate: cleanNullable(item.date_of_birth),
-    nationality: cleanNullable(item.citizenship ?? item.citizienship),
+    nationality: normalizeCountryCode(item.citizenship ?? item.citizienship),
     heightCm: parseHeightCm(item.height),
     photo: cleanNullable(item.image_url),
     position: normalizePosition(item.position),
@@ -504,24 +572,29 @@ async function main(): Promise<void> {
   const runWithDelay = async <T extends object>(
     crawler: CrawlerName,
     season: number,
-    parents?: object[],
+    parents?: object[]
   ): Promise<T[]> => {
     if (invocationCount > 0 && options.delayMs > 0) {
       await wait(options.delayMs);
     }
     invocationCount += 1;
     console.error(
-      `[export] running ${crawler} (season=${season}, parents=${parents?.length ?? 0})`,
+      `[export] running ${crawler} (season=${season}, parents=${
+        parents?.length ?? 0
+      })`
     );
     return runCrawler<T>(python, crawler, season, parents);
   };
 
   for (const season of options.seasons) {
-    const confederations = await runWithDelay<ConfederationItem>("confederations", season);
+    const confederations = await runWithDelay<ConfederationItem>(
+      "confederations",
+      season
+    );
     const competitionsAll = await runWithDelay<CompetitionItem>(
       "competitions",
       season,
-      confederations,
+      confederations
     );
 
     const requestedLeagueIds = new Set(options.leagueIds);
@@ -541,27 +614,39 @@ async function main(): Promise<void> {
     }
 
     const matchedCodes = new Set(firstTierByCode.keys());
-    const unmatched = options.leagueIds.filter((leagueId) => !matchedCodes.has(leagueId));
+    const unmatched = options.leagueIds.filter(
+      (leagueId) => !matchedCodes.has(leagueId)
+    );
     if (unmatched.length > 0) {
       const availableCodes = Array.from(
         new Set(
           competitionsAll
-            .filter((competition) => competition.competition_type === "first_tier")
+            .filter(
+              (competition) => competition.competition_type === "first_tier"
+            )
             .map((competition) => competition.country_code?.toUpperCase())
-            .filter((code): code is string => Boolean(code)),
-        ),
+            .filter((code): code is string => Boolean(code))
+        )
       ).sort();
       throw new Error(
         `Season ${season}: unmatched league ids: ${unmatched.join(", ")}. ` +
-        `Available first-tier league ids include: ${availableCodes.join(", ")}`,
+          `Available first-tier league ids include: ${availableCodes.join(
+            ", "
+          )}`
       );
     }
 
     const selectedCompetitions = options.leagueIds
       .map((leagueId) => firstTierByCode.get(leagueId))
-      .filter((competition): competition is CompetitionItem => Boolean(competition));
+      .filter((competition): competition is CompetitionItem =>
+        Boolean(competition)
+      );
 
-    const clubs = await runWithDelay<ClubItem>("clubs", season, selectedCompetitions);
+    const clubs = await runWithDelay<ClubItem>(
+      "clubs",
+      season,
+      selectedCompetitions
+    );
     const players = await runWithDelay<PlayerItem>("players", season, clubs);
 
     const playersByClubHref = new Map<string, Map<number, Player>>();
@@ -592,9 +677,13 @@ async function main(): Promise<void> {
       if (!leagueId) {
         continue;
       }
+      const standardizedCompetitionCountryCode =
+        normalizeCountryCode(competition.country_name) ?? "UN";
 
       const teamsById = new Map<number, Team>();
-      const competitionClubs = clubs.filter((club) => club.parent?.href === competition.href);
+      const competitionClubs = clubs.filter(
+        (club) => club.parent?.href === competition.href
+      );
 
       for (const club of competitionClubs) {
         const teamId = extractIdFromHref(club.href, "verein");
@@ -602,14 +691,16 @@ async function main(): Promise<void> {
           continue;
         }
 
-        const normalizedPlayers = Array.from(playersByClubHref.get(club.href)?.values() ?? [])
-          .sort(sortByIdAsc);
+        const normalizedPlayers = Array.from(
+          playersByClubHref.get(club.href)?.values() ?? []
+        ).sort(sortByIdAsc);
 
         const team: Team = {
           id: teamId,
-          name: cleanText(club.name) || cleanText(club.code) || `Team ${teamId}`,
+          name:
+            cleanText(club.name) || cleanText(club.code) || `Team ${teamId}`,
           code: cleanText(club.code) || `team-${teamId}`,
-          countryCode: leagueId,
+          countryCode: standardizedCompetitionCountryCode,
           national: false,
           players: normalizedPlayers,
         };
@@ -629,7 +720,7 @@ async function main(): Promise<void> {
           name: cleanText(competition.competition_name) || leagueId,
           country: {
             name: cleanText(competition.country_name) || leagueId,
-            code: leagueId,
+            code: standardizedCompetitionCountryCode,
           },
           seasons: [],
         };
@@ -651,7 +742,7 @@ async function main(): Promise<void> {
   await writeFile(options.out, `${JSON.stringify(output, null, 2)}\n`, "utf8");
 
   console.error(
-    `[export] wrote ${output.length} league records to ${options.out}`,
+    `[export] wrote ${output.length} league records to ${options.out}`
   );
 }
 
