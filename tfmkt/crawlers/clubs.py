@@ -109,9 +109,9 @@ async def run(parents_arg=None, season=2024, base_url=None):
 
         attributes['code'] = unquote(urlparse(base["href"]).path.split("/")[1])
         attributes['name'] = safe_strip(
-            sel.xpath("//span[@itemprop='legalName']/text()").get()
-        ) or safe_strip(
             sel.xpath('//h1[@class="data-header__headline-wrapper data-header__headline-wrapper--oswald"]/text()').get()
+        ) or safe_strip(
+            sel.xpath("//span[@itemprop='legalName']/text()").get()
         )
 
         for key, value in attributes.items():

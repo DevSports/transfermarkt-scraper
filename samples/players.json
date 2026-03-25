@@ -1,1 +1,33 @@
-{"type": "player", "href": "/ayoze-perez/profil/spieler/246968", "parent": {"type": "club", "href": "/leicester-city/startseite/verein/1003/saison_id/2020", "seasoned_href": "https://www.transfermarkt.co.uk/leicester-city/startseite/verein/1003/saison_id/2020/saison_id/2021"}, "name_in_home_country": "Ayoze P\u00e9rez Guti\u00e9rrez", "date_of_birth": "Jul 29, 1993", "place_of_birth": {"country": "Spain", "city": "Santa Cruz de Tenerife\u00a0\u00a0"}, "age": "28", "height": "1,78 m", "citizienship": "Spain", "position": "Second Striker", "player_agent": {"href": "/interlex-sport/beraterfirma/berater/5491", "name": "InterLex Sport"}, "current_club": {"href": "/leicester-city/startseite/verein/1003"}, "foot": "right", "joined": "Jul 4, 2019", "contract_expires": "Jun 30, 2023", "day_of_last_contract_extension": null, "outfitter": "adidas", "social_media": ["http://twitter.com/AyozePG", "http://www.instagram.com/ayozepg/"]}
+{
+  "type": "player",
+  "href": "/ayoze-perez/profil/spieler/246968",
+  "parent": {
+    "type": "club",
+    "href": "/leicester-city/startseite/verein/1003/saison_id/2020",
+    "seasoned_href": "https://www.transfermarkt.co.uk/leicester-city/startseite/verein/1003/saison_id/2020/saison_id/2021"
+  },
+  "name_in_home_country": "Ayoze P\u00e9rez Guti\u00e9rrez",
+  "date_of_birth": "Jul 29, 1993",
+  "place_of_birth": {
+    "country": "Spain",
+    "city": "Santa Cruz de Tenerife\u00a0\u00a0"
+  },
+  "age": "28",
+  "height": "1,78 m",
+  "citizienship": "Spain",
+  "position": "Second Striker",
+  "player_agent": {
+    "href": "/interlex-sport/beraterfirma/berater/5491",
+    "name": "InterLex Sport"
+  },
+  "current_club": { "href": "/leicester-city/startseite/verein/1003" },
+  "foot": "right",
+  "joined": "Jul 4, 2019",
+  "contract_expires": "Jun 30, 2023",
+  "day_of_last_contract_extension": null,
+  "outfitter": "adidas",
+  "social_media": [
+    "http://twitter.com/AyozePG",
+    "http://www.instagram.com/ayozepg/"
+  ]
+}
