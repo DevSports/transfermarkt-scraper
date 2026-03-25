@@ -73,9 +73,10 @@ def seasonize_href(item, season, base_url):
     elif item['type'] == 'country':
         return f"{base_url}{item['href']}"
     elif item['type'] == 'competition':
-        if item['competition_type'] == 'first_tier':
+        competition_type = item.get('competition_type')
+        if isinstance(competition_type, str) and competition_type.endswith('_tier'):
             return f"{base_url}{item['href']}/plus/0?saison_id={season}"
-        elif item['competition_type'] in ['domestic_cup', 'domestic_super_cup']:
+        elif competition_type in ['domestic_cup', 'domestic_super_cup']:
             return f"{base_url}{item['href']}?saison_id={season}".replace("wettbewerb", "pokalwettbewerb")
         else:
             return f"{base_url}{item['href']}?saison_id={season}"
@@ -86,9 +87,11 @@ def seasonize_href(item, season, base_url):
 def build_initial_requests(parents, season, base_url, label, spider_name):
     requests = []
     for item in parents:
-        # clubs extraction is best done on first_tier competition types only
-        if spider_name == 'clubs' and item.get('competition_type') != 'first_tier':
-            continue
+        # Clubs are listed on league tier pages (first/second/third/...).
+        if spider_name == 'clubs':
+            competition_type = item.get('competition_type')
+            if not (isinstance(competition_type, str) and competition_type.endswith('_tier')):
+                continue
         seasoned_href = seasonize_href(item, season, base_url)
         item['seasoned_href'] = seasoned_href
         requests.append(

@@ -93,7 +93,7 @@ node --experimental-strip-types ./export-leagues.ts \
 
 ## Notes
 
-- `--league-ids` are Transfermarkt competition codes for first-tier domestic leagues (example: `GB1`, `ES1`).
+- `--league-ids` are Transfermarkt competition codes for domestic league tiers (example: `GB1`, `GB2`, `GB3`, `ES1`).
 - `--country-codes` accepts ISO-2 (example: `GB`, `ES`) or Transfermarkt country codes (example: `GB-ENG`).
 - `--squad-levels` accepts `all` (default) or values like `senior,u21,u18`.
 - In `--mode nations`, output shape now matches leagues mode: `League[] -> seasons[] -> teams[]`.

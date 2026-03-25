@@ -2,12 +2,7 @@ export interface League {
   id: string;
   name: string;
   country: Country;
-  seasons: Season[];
-}
-
-export interface Nation {
-  id: string;
-  name: string;
+  logo: string | null;
   seasons: Season[];
 }
 
@@ -27,11 +22,9 @@ export interface Team {
   code: string;
   countryCode: string;
   national: boolean;
+  logo: string | null;
   players: Player[];
 }
-
-export type NationSeason = Season;
-export type NationSquad = Team;
 
 export interface Player {
   id: number;

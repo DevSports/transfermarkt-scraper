@@ -99,7 +99,7 @@ Items are extracted in JSON format with one JSON object per item, which get prin
 | `confederations` | — | Confederation | 5 items: Europa, América, África, Asia, FIFA |
 | `competitions` | Confederation | Competition | Domestic + national team competitions per confederation |
 | `countries` | Confederation | Country | One item per country (league-bearing nations) |
-| `clubs` | Competition (`first_tier`) | Club | Club squads with market value, coach, stadium |
+| `clubs` | Competition (league `*_tier`) | Club | Club squads with market value, coach, stadium |
 | `national_teams` | Country | National Team | All discovered national-team levels per country (senior + age groups) |
 | `players` | Club or National Team | Player | Full player profile including market value history |
 | `appearances` | Player | Appearance | Per-match stats for every game played |

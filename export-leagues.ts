@@ -51,6 +51,8 @@ interface ClubItem {
   href: string;
   name?: string;
   code?: string;
+  club_image_url?: string;
+  competition_image_url?: string;
   parent?: {
     href?: string;
     country_code?: string;
@@ -126,6 +128,13 @@ interface NationTeamCandidate {
   team: Team;
 }
 
+interface CrawlFailure {
+  crawler: CrawlerName;
+  season: number;
+  parentsCount: number;
+  message: string;
+}
+
 function printHelp(): void {
   console.log(`Usage:
   node export-leagues.ts --mode leagues --league-ids GB1,ES1 --seasons 2023,2024 --delay-ms 1000 [--out ./leagues.json]
@@ -133,7 +142,7 @@ function printHelp(): void {
 
 Arguments:
   --mode          Export mode: leagues | nations (default: leagues)
-  --league-ids    Comma-separated first-tier league codes (required in leagues mode)
+  --league-ids    Comma-separated league competition codes (any tier, e.g. GB1, GB2, GB3)
   --seasons       Comma-separated season years (required)
   --delay-ms      Delay in milliseconds between crawler process invocations (default: 0)
   --country-codes Optional country filters for nations mode (ISO-2 or Transfermarkt code, example: GB,ES,GB-ENG)
@@ -170,6 +179,10 @@ function parseLeagueIds(value: string): string[] {
     throw new Error("At least one league id is required in --league-ids");
   }
   return Array.from(new Set(leagueIds));
+}
+
+function isTierLeagueCompetition(competitionType: unknown): boolean {
+  return typeof competitionType === "string" && competitionType.endsWith("_tier");
 }
 
 function parseDelay(value: string): number {
@@ -512,6 +525,19 @@ function extractIdFromHref(href: string, segment: "verein" | "spieler"): number 
   return Number(match[1]);
 }
 
+function extractCompetitionCodeFromHref(href: unknown): string | null {
+  const value = cleanText(href);
+  if (!value) {
+    return null;
+  }
+
+  const match = value.match(/\/(?:wettbewerb|pokalwettbewerb)\/([^/?#]+)/i);
+  if (!match) {
+    return null;
+  }
+  return match[1].toUpperCase();
+}
+
 function cleanText(value: unknown): string {
   if (typeof value !== "string") {
     return "";
@@ -831,41 +857,48 @@ async function exportLeagues(options: CliOptions, runWithDelay: CrawlerRunner): 
     );
 
     const requestedLeagueIds = new Set(options.leagueIds);
-    const firstTierByCode = new Map<string, CompetitionItem>();
+    const tierCompetitionByCode = new Map<string, CompetitionItem>();
 
     for (const competition of competitionsAll) {
-      const countryCode = competition.country_code?.toUpperCase();
-      if (competition.competition_type !== "first_tier" || !countryCode) {
+      if (!isTierLeagueCompetition(competition.competition_type)) {
         continue;
       }
-      if (!requestedLeagueIds.has(countryCode)) {
+
+      const competitionCode = extractCompetitionCodeFromHref(competition.href);
+      if (!competitionCode) {
         continue;
       }
-      if (!firstTierByCode.has(countryCode)) {
-        firstTierByCode.set(countryCode, competition);
+      if (!requestedLeagueIds.has(competitionCode)) {
+        continue;
+      }
+      if (!tierCompetitionByCode.has(competitionCode)) {
+        tierCompetitionByCode.set(competitionCode, competition);
       }
     }
 
-    const matchedCodes = new Set(firstTierByCode.keys());
+    const matchedCodes = new Set(tierCompetitionByCode.keys());
     const unmatched = options.leagueIds.filter((leagueId) => !matchedCodes.has(leagueId));
     if (unmatched.length > 0) {
       const availableCodes = Array.from(
         new Set(
           competitionsAll
-            .filter((competition) => competition.competition_type === "first_tier")
-            .map((competition) => competition.country_code?.toUpperCase())
+            .filter((competition) => isTierLeagueCompetition(competition.competition_type))
+            .map((competition) => extractCompetitionCodeFromHref(competition.href))
             .filter((code): code is string => Boolean(code))
         )
       ).sort();
-      throw new Error(
-        `Season ${season}: unmatched league ids: ${unmatched.join(", ")}. ` +
-          `Available first-tier league ids include: ${availableCodes.join(", ")}`
+      console.error(
+        `[export] warning: season ${season} missing league ids: ${unmatched.join(", ")}. ` +
+          `Available tier league ids include: ${availableCodes.join(", ")}`
       );
     }
 
     const selectedCompetitions = options.leagueIds
-      .map((leagueId) => firstTierByCode.get(leagueId))
+      .map((leagueId) => tierCompetitionByCode.get(leagueId))
       .filter((competition): competition is CompetitionItem => Boolean(competition));
+    if (selectedCompetitions.length === 0) {
+      continue;
+    }
 
     const clubs = await runWithDelay<ClubItem>("clubs", season, selectedCompetitions);
     const players = await runWithDelay<PlayerItem>("players", season, clubs);
@@ -894,7 +927,9 @@ async function exportLeagues(options: CliOptions, runWithDelay: CrawlerRunner): 
     }
 
     for (const competition of selectedCompetitions) {
-      const leagueId = competition.country_code?.toUpperCase();
+      const leagueId =
+        extractCompetitionCodeFromHref(competition.href) ??
+        competition.country_code?.toUpperCase();
       if (!leagueId) {
         continue;
       }
@@ -921,6 +956,7 @@ async function exportLeagues(options: CliOptions, runWithDelay: CrawlerRunner): 
           code: cleanText(club.code) || `team-${teamId}`,
           countryCode: standardizedCompetitionCountryCode,
           national: false,
+          logo: cleanNullable(club.club_image_url),
           players: normalizedPlayers,
         };
 
@@ -931,6 +967,9 @@ async function exportLeagues(options: CliOptions, runWithDelay: CrawlerRunner): 
         year: season,
         teams: Array.from(teamsById.values()).sort(sortByIdAsc),
       };
+      const competitionLogo =
+        competitionClubs.map((club) => cleanNullable(club.competition_image_url)).find(Boolean) ??
+        null;
 
       let league = leagueData.get(leagueId);
       if (!league) {
@@ -941,9 +980,13 @@ async function exportLeagues(options: CliOptions, runWithDelay: CrawlerRunner): 
             name: cleanText(competition.country_name) || leagueId,
             code: standardizedCompetitionCountryCode,
           },
+          logo: competitionLogo,
           seasons: [],
         };
         leagueData.set(leagueId, league);
+      }
+      if (league.logo === null && competitionLogo !== null) {
+        league.logo = competitionLogo;
       }
 
       league.seasons.push(seasonEntry);
@@ -1014,13 +1057,18 @@ async function exportNations(options: CliOptions, runWithDelay: CrawlerRunner): 
         (code) => !matchedRequestedCodes.has(code)
       );
       if (unmatchedCountryCodes.length > 0) {
-        throw new Error(
-          `Season ${season}: unmatched country codes: ${unmatchedCountryCodes.join(", ")}. ` +
+        console.error(
+          `[export] warning: season ${season} missing country codes: ${unmatchedCountryCodes.join(
+            ", "
+          )}. ` +
             `Available country codes include: ${Array.from(availableCountryCodes)
               .sort()
               .join(", ")}`
         );
       }
+    }
+    if (selectedCountries.length === 0) {
+      continue;
     }
 
     const nationalTeamsAll = await runWithDelay<NationalTeamItem>(
@@ -1048,11 +1096,14 @@ async function exportNations(options: CliOptions, runWithDelay: CrawlerRunner): 
         (level) => !matchedLevels.has(level)
       );
       if (unmatchedLevels.length > 0) {
-        throw new Error(
-          `Season ${season}: unmatched squad levels: ${unmatchedLevels.join(", ")}. ` +
+        console.error(
+          `[export] warning: season ${season} missing squad levels: ${unmatchedLevels.join(", ")}. ` +
             `Available levels include: ${Array.from(availableLevels).sort().join(", ")}`
         );
       }
+    }
+    if (selectedNationalTeams.length === 0) {
+      continue;
     }
 
     const players = await runWithDelay<PlayerItem>("players", season, selectedNationalTeams);
@@ -1102,6 +1153,7 @@ async function exportNations(options: CliOptions, runWithDelay: CrawlerRunner): 
         code: cleanText(nationalTeam.code) || `team-${teamId}`,
         countryCode,
         national: true,
+        logo: cleanNullable(nationalTeam.team_image_url),
         players: Array.from(playersByTeamHref.get(nationalTeam.href)?.values() ?? []).sort(
           sortByIdAsc
         ),
@@ -1154,6 +1206,7 @@ async function exportNations(options: CliOptions, runWithDelay: CrawlerRunner): 
             name: "International",
             code: "UN",
           },
+          logo: null,
           seasons: [],
         };
         competitionData.set(competitionId, competition);
@@ -1195,6 +1248,7 @@ async function main(): Promise<void> {
   console.error(`[export] mode: ${options.mode}`);
 
   let invocationCount = 0;
+  const failures: CrawlFailure[] = [];
   const runWithDelay: CrawlerRunner = async <T extends object>(
     crawler: CrawlerName,
     season: number,
@@ -1207,7 +1261,31 @@ async function main(): Promise<void> {
     console.error(
       `[export] running ${crawler} (season=${season}, parents=${parents?.length ?? 0})`
     );
-    return runCrawler<T>(python, crawler, season, parents);
+    try {
+      return await runCrawler<T>(python, crawler, season, parents);
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const compactMessage = rawMessage
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .slice(0, 3)
+        .join(" | ");
+      const failure: CrawlFailure = {
+        crawler,
+        season,
+        parentsCount: parents?.length ?? 0,
+        message: compactMessage || rawMessage,
+      };
+      failures.push(failure);
+      console.error(
+        `[export] warning: ${crawler} failed for season ${season}. Continuing with no items from this step.`
+      );
+      if (failure.message) {
+        console.error(`[export] warning: ${failure.message}`);
+      }
+      return [];
+    }
   };
 
   const output =
@@ -1219,6 +1297,14 @@ async function main(): Promise<void> {
   await writeFile(options.out, `${JSON.stringify(output, null, 2)}\n`, "utf8");
 
   console.error(`[export] wrote ${output.length} records to ${options.out}`);
+  if (failures.length > 0) {
+    console.error("[export] completed with crawler failures:");
+    for (const failure of failures) {
+      console.error(
+        `[export]   - ${failure.crawler} season=${failure.season} parents=${failure.parentsCount}: ${failure.message}`
+      );
+    }
+  }
 }
 
 main().catch((error: unknown) => {

@@ -17,6 +17,9 @@ async def run(parents_arg=None, season=2024, base_url=None):
     @crawler.router.handler('parse')
     async def parse(context) -> None:
         parent = context.request.user_data['parent']
+        competition_image_url = context.selector.css(
+            "div.data-header__profile-container img::attr(src)"
+        ).get()
 
         def is_teams_table(table):
             return table.css('th::text')[0].get().lower() == 'club'
@@ -37,6 +40,7 @@ async def run(parents_arg=None, season=2024, base_url=None):
                 'type': 'club',
                 'href': href_strip_season,
                 'parent': parent,
+                'competition_image_url': competition_image_url,
             }
 
             new_requests.append(

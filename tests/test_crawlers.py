@@ -99,6 +99,8 @@ def test_clubs(tmp_path):
     # New: club_image_url on all items, coach_href on most items
     for item in items:
         assert "club_image_url" in item
+        assert "competition_image_url" in item
+    assert any(item.get("competition_image_url") for item in items)
     assert any(item.get("coach_href") for item in items)
 
 

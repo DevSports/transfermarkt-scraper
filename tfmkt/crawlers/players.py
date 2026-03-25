@@ -10,6 +10,18 @@ from tfmkt.common import DEFAULT_BASE_URL, load_parents, build_initial_requests,
 logger = logging.getLogger(__name__)
 
 
+def parse_shirt_number(value):
+    """Normalize shirt number text to a plain integer-like string."""
+    normalized = safe_strip(value)
+    if not normalized or normalized == "-":
+        return None
+
+    match = re.search(r"-?\d+", normalized)
+    if not match:
+        return None
+    return match.group(0)
+
+
 async def run(parents_arg=None, season=2024, base_url=None):
     base_url = base_url or DEFAULT_BASE_URL
     parents = load_parents(parents_arg)
@@ -28,17 +40,36 @@ async def run(parents_arg=None, season=2024, base_url=None):
         assert len(players_table) >= 1
         players_table = players_table[0]
 
-        player_hrefs = players_table.xpath(
-            '//table[@class="inline-table"]//td[@class="hauptlink"]/a/@href'
-        ).getall()
-
         new_requests = []
-        for href in player_hrefs:
+        player_rows = players_table.xpath(
+            ".//tbody/tr[.//a[contains(@href, '/profil/spieler/')]]"
+        )
+        for row in player_rows:
+            href = safe_strip(
+                row.xpath(
+                    ".//table[contains(@class, 'inline-table')]//td[contains(@class, 'hauptlink')]/a/@href"
+                ).get()
+            ) or safe_strip(
+                row.xpath(".//a[contains(@href, '/profil/spieler/')]/@href").get()
+            )
+            if not href:
+                continue
+
+            squad_number = parse_shirt_number(
+                row.xpath(
+                    ".//td[contains(@class, 'rueckennummer')]//div[contains(@class, 'rn_nummer')]/text()"
+                ).get()
+            ) or parse_shirt_number(
+                row.xpath(".//td[contains(@class, 'rueckennummer')]//text()").get()
+            )
+
             cb_data = {
                 'type': 'player',
                 'href': href,
                 'parent': parent,
             }
+            if squad_number is not None:
+                cb_data['number_from_squad'] = squad_number
             new_requests.append(
                 Request.from_url(
                     url=base_url + href,
@@ -60,7 +91,9 @@ async def run(parents_arg=None, season=2024, base_url=None):
         name_element = sel.xpath("//h1[@class='data-header__headline-wrapper']")
         attributes["name"] = safe_strip("".join(name_element.xpath("text()").getall()).strip())
         attributes["last_name"] = safe_strip(name_element.xpath("strong/text()").get())
-        attributes["number"] = safe_strip(name_element.xpath("span/text()").get())
+        header_number = parse_shirt_number(name_element.xpath("span/text()").get())
+        squad_number = parse_shirt_number(base.get("number_from_squad"))
+        attributes["number"] = header_number or squad_number
 
         attributes['name_in_home_country'] = sel.xpath(
             "//span[text()='Name in home country:']/following::span[1]/text()"
