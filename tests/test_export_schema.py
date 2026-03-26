@@ -70,6 +70,22 @@ def main():
                 "competition_name": "Championship",
                 "country_name": "England",
                 "country_code": "GB1",
+            },
+            {
+                "type": "competition",
+                "href": "/eredivisie/startseite/wettbewerb/NL1",
+                "competition_type": "first_tier",
+                "competition_name": "Eredivisie",
+                "country_name": "Netherlands",
+                "country_code": "NL1",
+            },
+            {
+                "type": "competition",
+                "href": "/scottish-premiership/startseite/wettbewerb/SC1",
+                "competition_type": "first_tier",
+                "competition_name": "Premiership",
+                "country_name": "Scotland",
+                "country_code": "SC1",
             }
         ])
         return 0
@@ -98,6 +114,29 @@ def main():
                             "code": "sheffield-united",
                             "club_image_url": "https://img.example.com/club-350.png",
                             "competition_image_url": "https://img.example.com/comp-GB2.png",
+                        },
+                    ]
+                )
+            elif "/wettbewerb/SC1" in parent_href:
+                items.extend(
+                    [
+                        {
+                            "type": "club",
+                            "href": "/celtic-fc/startseite/verein/122",
+                            "parent": parent,
+                            "name": "Celtic FC",
+                            "code": "celtic-fc",
+                            "club_image_url": "https://img.example.com/club-122.png",
+                            "competition_image_url": "https://img.example.com/comp-SC1.png",
+                        },
+                        {
+                            "type": "club",
+                            "href": "/rangers-fc/startseite/verein/124",
+                            "parent": parent,
+                            "name": "Rangers FC",
+                            "code": "rangers-fc",
+                            "club_image_url": "https://img.example.com/club-124.png",
+                            "competition_image_url": "https://img.example.com/comp-SC1.png",
                         },
                     ]
                 )
@@ -326,5 +365,65 @@ def test_export_leagues_supports_non_first_tier_competition_ids(tmp_path):
     assert league["name"] == "Championship"
     assert league["logo"] == "https://img.example.com/comp-GB2.png"
     assert league["country"]["name"] == "England"
+    assert league["country"]["code"] == "GB-ENG"
     assert league["seasons"][0]["year"] == 2025
     assert len(league["seasons"][0]["teams"]) == 2
+    assert all(team["countryCode"] == "GB-ENG" for team in league["seasons"][0]["teams"])
+
+
+def test_export_leagues_maps_netherlands_to_nl_iso_code(tmp_path):
+    data = _run_export(
+        tmp_path,
+        [
+            "--mode",
+            "leagues",
+            "--league-ids",
+            "NL1",
+            "--seasons",
+            "2025",
+        ],
+    )
+
+    assert len(data) == 1
+    league = data[0]
+    assert league["id"] == "NL1"
+    assert league["country"]["name"] == "Netherlands"
+    assert league["country"]["code"] == "NL"
+    assert all(team["countryCode"] == "NL" for team in league["seasons"][0]["teams"])
+
+
+def test_export_leagues_uses_extended_codes_for_home_nations(tmp_path):
+    data = _run_export(
+        tmp_path,
+        [
+            "--mode",
+            "leagues",
+            "--league-ids",
+            "GB2,SC1",
+            "--seasons",
+            "2025",
+        ],
+    )
+
+    assert len(data) == 2
+    country_code_by_league_id = {league["id"]: league["country"]["code"] for league in data}
+    assert country_code_by_league_id["GB2"] == "GB-ENG"
+    assert country_code_by_league_id["SC1"] == "GB-SCO"
+
+
+def test_export_nations_accepts_wales_extended_alias_code(tmp_path):
+    data = _run_export(
+        tmp_path,
+        [
+            "--mode",
+            "nations",
+            "--seasons",
+            "2025",
+            "--country-codes",
+            "GB-WLS",
+            "--squad-levels",
+            "senior",
+        ],
+    )
+
+    assert len(data) == 1

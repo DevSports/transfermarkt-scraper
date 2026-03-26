@@ -135,17 +135,140 @@ interface CrawlFailure {
   message: string;
 }
 
+type ShutdownSignal = "SIGINT" | "SIGTERM" | "SIGHUP";
+
+interface ActiveSubprocess {
+  child: ReturnType<typeof spawn>;
+  detached: boolean;
+}
+
+const USE_DETACHED_PROCESS_GROUP = process.platform !== "win32";
+const activeSubprocesses = new Set<ActiveSubprocess>();
+const SHUTDOWN_SIGNALS: ShutdownSignal[] = ["SIGINT", "SIGTERM", "SIGHUP"];
+const SIGNAL_EXIT_CODE: Record<ShutdownSignal, number> = {
+  SIGINT: 130,
+  SIGTERM: 143,
+  SIGHUP: 129,
+};
+let processSignalHandlersInstalled = false;
+let shutdownInProgress = false;
+const ISO2_COUNTRY_CODE_PATTERN = /^[A-Z]{2}$/;
+const EXTENDED_COUNTRY_CODE_PATTERN = /^[A-Z]{2}-[A-Z0-9]{2,}$/;
+
+function isProcessNotFoundError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ESRCH"
+  );
+}
+
+function sendSignalToSubprocess(
+  subprocess: ActiveSubprocess,
+  signal: NodeJS.Signals
+): void {
+  const pid = subprocess.child.pid;
+  if (typeof pid !== "number" || pid <= 0) {
+    return;
+  }
+
+  try {
+    if (subprocess.detached && process.platform !== "win32") {
+      process.kill(-pid, signal);
+    } else {
+      subprocess.child.kill(signal);
+    }
+  } catch (error) {
+    if (!isProcessNotFoundError(error)) {
+      console.error(
+        `[export] warning: failed signaling subprocess ${pid} with ${signal}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+}
+
+function terminateSubprocessImmediately(subprocess: ActiveSubprocess): void {
+  sendSignalToSubprocess(subprocess, "SIGTERM");
+  sendSignalToSubprocess(subprocess, "SIGKILL");
+}
+
+async function terminateSubprocessGracefully(
+  subprocess: ActiveSubprocess,
+  signal: ShutdownSignal
+): Promise<void> {
+  const { child } = subprocess;
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
+  const closePromise = new Promise<void>((resolve) => {
+    child.once("close", () => resolve());
+    child.once("error", () => resolve());
+  });
+
+  sendSignalToSubprocess(subprocess, signal);
+  await Promise.race([closePromise, wait(1500)]);
+
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
+  sendSignalToSubprocess(subprocess, "SIGKILL");
+  await Promise.race([closePromise, wait(500)]);
+}
+
+function installProcessSignalHandlers(): void {
+  if (processSignalHandlersInstalled) {
+    return;
+  }
+  processSignalHandlersInstalled = true;
+
+  for (const signal of SHUTDOWN_SIGNALS) {
+    process.on(signal, () => {
+      if (shutdownInProgress) {
+        return;
+      }
+
+      shutdownInProgress = true;
+      console.error(
+        `[export] received ${signal}; stopping ${activeSubprocesses.size} active subprocess(es)...`
+      );
+
+      void (async () => {
+        await Promise.race([
+          Promise.allSettled(
+            Array.from(activeSubprocesses).map((subprocess) =>
+              terminateSubprocessGracefully(subprocess, signal)
+            )
+          ),
+          wait(3000),
+        ]);
+        process.exit(SIGNAL_EXIT_CODE[signal]);
+      })();
+    });
+  }
+
+  process.on("exit", () => {
+    for (const subprocess of Array.from(activeSubprocesses)) {
+      terminateSubprocessImmediately(subprocess);
+    }
+  });
+}
+
 function printHelp(): void {
   console.log(`Usage:
   node export-leagues.ts --mode leagues --league-ids GB1,ES1 --seasons 2023,2024 --delay-ms 1000 [--out ./leagues.json]
-  node export-leagues.ts --mode nations --seasons 2023,2024 [--country-codes GB,ES] [--squad-levels senior,u21,u18] [--out ./nations.json]
+  node export-leagues.ts --mode nations --seasons 2023,2024 [--country-codes GB,ES,GB-SCT] [--squad-levels senior,u21,u18] [--out ./nations.json]
 
 Arguments:
   --mode          Export mode: leagues | nations (default: leagues)
   --league-ids    Comma-separated league competition codes (any tier, e.g. GB1, GB2, GB3)
   --seasons       Comma-separated season years (required)
   --delay-ms      Delay in milliseconds between crawler process invocations (default: 0)
-  --country-codes Optional country filters for nations mode (ISO-2 or Transfermarkt code, example: GB,ES,GB-ENG)
+  --country-codes Optional country filters for nations mode (ISO-2 or extended country code, example: GB,ES,GB-ENG,GB-SCT)
   --squad-levels  Optional levels for nations mode: all | senior | uXX list (example: senior,u21,u18)
                   Nations mode outputs club-like League[] with synthetic level competitions (NAT-SEN, NAT-U21, ...)
   --out           Output file path (defaults: ./leagues.json or ./nations.json)
@@ -208,7 +331,7 @@ function parseCountryCodes(value: string): string[] {
   for (const code of codes) {
     if (!/^[A-Z]{2}(?:-[A-Z0-9]{2,})?$/.test(code)) {
       throw new Error(
-        `Invalid country code in --country-codes: "${code}". Use ISO-2 (GB) or Transfermarkt code (GB-ENG).`
+        `Invalid country code in --country-codes: "${code}". Use ISO-2 (GB) or extended code (GB-ENG, GB-SCT).`
       );
     }
   }
@@ -362,11 +485,19 @@ function runSubprocess<T extends object>(
   inputItems?: object[],
   parseNdjson = true
 ): Promise<SpawnResult<T>> {
+  if (shutdownInProgress) {
+    return Promise.reject(new Error(`${context} aborted because shutdown is in progress.`));
+  }
+
   return new Promise((resolve, reject) => {
+    const detached = USE_DETACHED_PROCESS_GROUP;
     const child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       env: process.env,
+      detached,
     });
+    const subprocess: ActiveSubprocess = { child, detached };
+    activeSubprocesses.add(subprocess);
 
     const items: T[] = [];
     let stdoutBuffer = "";
@@ -397,10 +528,12 @@ function runSubprocess<T extends object>(
     });
 
     child.once("error", (error) => {
+      activeSubprocesses.delete(subprocess);
       reject(new Error(`${context} failed to start (${command}): ${error.message}`));
     });
 
     child.once("close", (code) => {
+      activeSubprocesses.delete(subprocess);
       const leftover = stdoutBuffer.trim();
       if (parseNdjson && leftover.length > 0) {
         items.push(parseNdjsonLine<T>(leftover, context));
@@ -580,23 +713,59 @@ function normalizeCountryCode(value: unknown): string | null {
   return deriveFallbackCountryCode(raw);
 }
 
-function homeNationAlias(countryName: string, iso2: string): string | null {
+function homeNationAliases(countryName: string, iso2: string): string[] {
   if (iso2 !== "GB") {
-    return null;
+    return [];
   }
 
   const normalized = normalizeCountryKey(countryName);
   if (normalized === "england") {
-    return "GB-ENG";
+    return ["GB-ENG"];
   }
   if (normalized === "scotland") {
-    return "GB-SCO";
+    return ["GB-SCO", "GB-SCT"];
   }
   if (normalized === "wales") {
-    return "GB-WAL";
+    return ["GB-WAL", "GB-WLS"];
   }
   if (normalized === "northernireland") {
-    return "GB-NIR";
+    return ["GB-NIR"];
+  }
+  return [];
+}
+
+function resolveCountryCodeVariants(
+  countryName: unknown,
+  transfermarktCodeRaw?: unknown
+): {
+  iso2: string | null;
+  transfermarktCode: string;
+  aliases: string[];
+} {
+  const cleanedCountryName = cleanText(countryName);
+  const iso2 = normalizeCountryCode(cleanedCountryName);
+  const transfermarktCode = cleanText(transfermarktCodeRaw).toUpperCase();
+  const aliases = homeNationAliases(cleanedCountryName, iso2 ?? "");
+  return { iso2, transfermarktCode, aliases };
+}
+
+function standardizeCountryCode(countryName: unknown, transfermarktCodeRaw?: unknown): string | null {
+  const { iso2, transfermarktCode, aliases } = resolveCountryCodeVariants(
+    countryName,
+    transfermarktCodeRaw
+  );
+
+  if (EXTENDED_COUNTRY_CODE_PATTERN.test(transfermarktCode)) {
+    return transfermarktCode;
+  }
+  if (aliases.length > 0) {
+    return aliases[0];
+  }
+  if (iso2) {
+    return iso2;
+  }
+  if (ISO2_COUNTRY_CODE_PATTERN.test(transfermarktCode)) {
+    return transfermarktCode;
   }
   return null;
 }
@@ -721,7 +890,7 @@ function normalizePlayer(item: PlayerItem): Player | null {
     lastName: names.lastName,
     gender: "Male",
     birthDate: cleanNullable(item.date_of_birth),
-    nationality: normalizeCountryCode(item.citizenship ?? item.citizienship),
+    nationality: standardizeCountryCode(item.citizenship ?? item.citizienship),
     heightCm: parseHeightCm(item.height),
     photo: cleanNullable(item.image_url),
     position: normalizePosition(item.position),
@@ -936,7 +1105,7 @@ async function exportLeagues(options: CliOptions, runWithDelay: CrawlerRunner): 
       }
 
       const standardizedCompetitionCountryCode =
-        normalizeCountryCode(competition.country_name) ?? "UN";
+        standardizeCountryCode(competition.country_name, competition.country_code) ?? "UN";
 
       const teamsById = new Map<number, Team>();
       const competitionClubs = clubs.filter((club) => club.parent?.href === competition.href);
@@ -1017,22 +1186,24 @@ async function exportNations(options: CliOptions, runWithDelay: CrawlerRunner): 
     const selectedCountries: CountryItem[] = [];
 
     for (const country of countries) {
-      const countryName = cleanText(country.country_name);
-      const normalizedCountryCode = normalizeCountryCode(countryName) ?? "UN";
-      const transfermarktCountryCode = cleanText(country.country_code).toUpperCase();
-      const aliasCode = homeNationAlias(countryName, normalizedCountryCode);
+      const { iso2, transfermarktCode, aliases } = resolveCountryCodeVariants(
+        country.country_name,
+        country.country_code
+      );
+      const normalizedCountryCode = iso2 ?? "UN";
+      const transfermarktCountryCode = transfermarktCode;
       availableCountryCodes.add(normalizedCountryCode);
       if (transfermarktCountryCode) {
         availableCountryCodes.add(transfermarktCountryCode);
       }
-      if (aliasCode) {
+      for (const aliasCode of aliases) {
         availableCountryCodes.add(aliasCode);
       }
 
       const matchesRequestedCountryCode =
         requestedCountryCodes.size === 0 ||
         requestedCountryCodes.has(normalizedCountryCode) ||
-        (aliasCode !== null && requestedCountryCodes.has(aliasCode)) ||
+        aliases.some((aliasCode) => requestedCountryCodes.has(aliasCode)) ||
         (transfermarktCountryCode.length > 0 &&
           requestedCountryCodes.has(transfermarktCountryCode));
 
@@ -1042,8 +1213,10 @@ async function exportNations(options: CliOptions, runWithDelay: CrawlerRunner): 
           if (requestedCountryCodes.has(normalizedCountryCode)) {
             matchedRequestedCodes.add(normalizedCountryCode);
           }
-          if (aliasCode !== null && requestedCountryCodes.has(aliasCode)) {
-            matchedRequestedCodes.add(aliasCode);
+          for (const aliasCode of aliases) {
+            if (requestedCountryCodes.has(aliasCode)) {
+              matchedRequestedCodes.add(aliasCode);
+            }
           }
           if (
             transfermarktCountryCode.length > 0 &&
@@ -1142,7 +1315,9 @@ async function exportNations(options: CliOptions, runWithDelay: CrawlerRunner): 
       }
 
       const countryName = cleanText(nationalTeam.parent?.country_name);
-      const countryCode = normalizeCountryCode(countryName) ?? "UN";
+      const countryCode =
+        standardizeCountryCode(nationalTeam.parent?.country_name, nationalTeam.parent?.country_code) ??
+        "UN";
       const nationName = countryName || countryCode;
       const level = normalizeSquadLevel(nationalTeam.team_level ?? nationalTeam.team_label);
       const label =
@@ -1311,6 +1486,8 @@ async function main(): Promise<void> {
     }
   }
 }
+
+installProcessSignalHandlers();
 
 main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);

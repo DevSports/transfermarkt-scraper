@@ -174,7 +174,10 @@ export const COUNTRY_CODE_BY_NORMALIZED_NAME: Record<string, string> = {
   "namibia": "NA",
   "nauru": "NR",
   "nepal": "NP",
+  "netherland": "NL",
+  "netherlands": "NL",
   "netherlandskingdomofthe": "NL",
+  "thenetherlands": "NL",
   "newcaledonia": "NC",
   "newzealand": "NZ",
   "nicaragua": "NI",
@@ -284,4 +287,3 @@ export const COUNTRY_CODE_BY_NORMALIZED_NAME: Record<string, string> = {
   "zambia": "ZM",
   "zimbabwe": "ZW",
 };
-
