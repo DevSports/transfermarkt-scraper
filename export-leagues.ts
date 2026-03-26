@@ -719,6 +719,7 @@ function normalizePlayer(item: PlayerItem): Player | null {
     id: playerId,
     firstName: names.firstName,
     lastName: names.lastName,
+    gender: "Male",
     birthDate: cleanNullable(item.date_of_birth),
     nationality: normalizeCountryCode(item.citizenship ?? item.citizienship),
     heightCm: parseHeightCm(item.height),
@@ -954,6 +955,7 @@ async function exportLeagues(options: CliOptions, runWithDelay: CrawlerRunner): 
           id: teamId,
           name: cleanText(club.name) || cleanText(club.code) || `Team ${teamId}`,
           code: cleanText(club.code) || `team-${teamId}`,
+          gender: "Male",
           countryCode: standardizedCompetitionCountryCode,
           national: false,
           logo: cleanNullable(club.club_image_url),
@@ -976,6 +978,7 @@ async function exportLeagues(options: CliOptions, runWithDelay: CrawlerRunner): 
         league = {
           id: leagueId,
           name: cleanText(competition.competition_name) || leagueId,
+          gender: "Male",
           country: {
             name: cleanText(competition.country_name) || leagueId,
             code: standardizedCompetitionCountryCode,
@@ -1151,6 +1154,7 @@ async function exportNations(options: CliOptions, runWithDelay: CrawlerRunner): 
         id: teamId,
         name: cleanText(nationalTeam.name) || label,
         code: cleanText(nationalTeam.code) || `team-${teamId}`,
+        gender: "Male",
         countryCode,
         national: true,
         logo: cleanNullable(nationalTeam.team_image_url),
@@ -1202,6 +1206,7 @@ async function exportNations(options: CliOptions, runWithDelay: CrawlerRunner): 
         competition = {
           id: competitionId,
           name: competitionName,
+          gender: "Male",
           country: {
             name: "International",
             code: "UN",

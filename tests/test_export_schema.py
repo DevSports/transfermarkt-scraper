@@ -259,6 +259,7 @@ def test_export_leagues_includes_team_and_competition_logos(tmp_path):
 
     assert len(data) == 1
     league = data[0]
+    assert league["gender"] == "Male"
     assert "logo" in league
     assert league["logo"] == "https://img.example.com/comp-KR1.png"
     assert "country" in league
@@ -267,11 +268,13 @@ def test_export_leagues_includes_team_and_competition_logos(tmp_path):
     teams = league["seasons"][0]["teams"]
     assert len(teams) >= 1
     for team in teams:
+        assert team["gender"] == "Male"
         assert "logo" in team
         assert team["logo"] is not None
         assert "players" in team
 
     first_player = teams[0]["players"][0]
+    assert first_player["gender"] == "Male"
     assert "photo" in first_player
     assert first_player["photo"] is not None
 
@@ -293,12 +296,15 @@ def test_export_nations_includes_team_logo_and_null_competition_logo(tmp_path):
 
     assert len(data) == 1
     competition = data[0]
+    assert competition["gender"] == "Male"
     assert "logo" in competition
     assert competition["logo"] is None
 
     teams = competition["seasons"][0]["teams"]
     assert len(teams) == 1
+    assert teams[0]["gender"] == "Male"
     assert teams[0]["logo"] == "https://img.example.com/wales-team.png"
+    assert teams[0]["players"][0]["gender"] == "Male"
 
 
 def test_export_leagues_supports_non_first_tier_competition_ids(tmp_path):
